@@ -598,7 +598,7 @@ class YouTubeAnalyticsBot:
 
     def analyze_with_perplexity(self, niche, keywords):
         """
-        Анализ трендов ниши с использованием GPT-4o.
+        Анализ трендов ниши с использованием Perplexity API и модели sonar-pro.
 
         Args:
             niche (str): Тематика канала
@@ -609,38 +609,65 @@ class YouTubeAnalyticsBot:
         """
         try:
             # Если нет ключа API или параметров, возвращаем пустой результат
-            if not self.openai_api_key or not niche or not keywords:
-                return "Анализ трендов недоступен (не указан API-ключ или параметры)"
+            if not self.perplexity_api_key or not niche or not keywords:
+                return "Анализ трендов недоступен (не указан API-ключ Perplexity или параметры)"
 
+            # URL для API Perplexity
+            url = "https://api.perplexity.ai/chat/completions"
+            
             # Формируем запрос на основе тематики и ключевых слов
-            prompt = f"""Ты эксперт по анализу трендов на YouTube. Проанализируй текущие тренды и популярные темы в нише "{niche}" на YouTube.
+            prompt = f"""Проанализируй текущие тренды и популярные темы в нише "{niche}" на YouTube.
 
 Вот ключевые слова, которые уже используются на канале: {', '.join(keywords[:15])}
 
-Пожалуйста, предоставь следующую информацию:
+Предоставь следующую информацию:
 1. Топ-5 трендовых тем в нише "{niche}" на YouTube в настоящее время
 2. Ключевые слова и хэштеги, которые стоит использовать для продвижения контента
 3. Форматы видео, которые наиболее популярны у аудитории в этой нише сейчас
 4. Рекомендации по оптимальной длительности видео для этой ниши
 5. Идеи для коллабораций или интеграции популярных трендов
 
-Основывайся на текущих трендах и предпочтениях аудитории в 2023-2024 годах.
-"""
+Основывайся на текущих трендах и предпочтениях аудитории в 2023-2024 годах."""
+
+            # Формируем payload для запроса
+            payload = {
+                "model": "sonar-pro",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": "Ты эксперт по анализу трендов на YouTube. Твои ответы должны быть точными, актуальными и полезными для создателей контента."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                "max_tokens": 2000,
+                "temperature": 0.2,
+                "top_p": 0.9,
+                "return_images": False,
+                "return_related_questions": False,
+                "web_search_options": {"search_context_size": "high"}
+            }
+            
+            headers = {
+                "Authorization": f"Bearer {self.perplexity_api_key}",
+                "Content-Type": "application/json"
+            }
 
             # Отправляем запрос
-            client = OpenAI(api_key=self.openai_api_key)
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=1500
-            )
-
-            return response.choices[0].message.content
+            import requests
+            response = requests.post(url, json=payload, headers=headers)
+            
+            # Проверяем успешность запроса
+            response.raise_for_status()
+            
+            # Получаем и возвращаем ответ
+            result = response.json()
+            return result["choices"][0]["message"]["content"]
 
         except Exception as e:
-            print(f"Ошибка при анализе трендов: {e}")
+            print(f"Ошибка при анализе трендов с Perplexity API: {e}")
             return f"Не удалось выполнить анализ трендов: {str(e)}"
 
     def analyze_with_gpt(self, videos, analysis):
@@ -1171,91 +1198,272 @@ class YouTubeTelegramBot:
             self.process_text_message(message)
 
     def send_welcome(self, message):
-        """Отправка приветственного сообщения"""
+        """Отправляет приветственное сообщение."""
         user_id = message.from_user.id
-        self.user_states[user_id] = 'main'
-
-        # Создаем клавиатуру
+        self.user_states[user_id] = None  # Сбрасываем состояние пользователя
+        
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(types.KeyboardButton("📊 Анализ YouTube-канала"))
+        markup.add(types.KeyboardButton("🔍 Проанализировать канал"))
         markup.add(types.KeyboardButton("🎬 Идеи для видео"), types.KeyboardButton("📱 Идеи для Shorts"))
-        markup.add(types.KeyboardButton("💡 Оценить идею"), types.KeyboardButton("ℹ️ Справка"))
-
+        markup.add(types.KeyboardButton("💡 Оценить идею"), types.KeyboardButton("📊 Анализ трендов"))
+        markup.add(types.KeyboardButton("ℹ️ Справка"))
+        
         self.bot.send_message(
             message.chat.id,
-            f"👋 Здравствуйте, {message.from_user.first_name}!\n\n"
+            f"Привет, {message.from_user.first_name}! 👋\n\n"
             "Я бот для анализа YouTube-каналов и создания контент-планов.\n\n"
             "С моей помощью вы можете:\n"
-            "• Анализировать статистику видео\n"
-            "• Получать идеи для видео и Shorts\n"
-            "• Оценивать свои идеи и получать рекомендации\n\n"
-            "Выберите действие в меню.",
+            "- Анализировать статистику канала\n"
+            "- Получать рекомендации по улучшению\n"
+            "- Генерировать идеи для новых видео и Shorts\n"
+            "- Оценивать собственные идеи\n"
+            "- Анализировать тренды в вашей нише\n\n"
+            "Для начала работы выберите действие или введите команду /help для получения помощи.",
             reply_markup=markup
         )
 
     def send_help(self, message):
-        """Отправка справочного сообщения"""
+        """Отправляет справочную информацию."""
+        # Создаем клавиатуру с кнопками
         markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-        markup.add(types.KeyboardButton("📊 Анализ YouTube-канала"))
+        markup.add(types.KeyboardButton("🔍 Проанализировать канал"))
         markup.add(types.KeyboardButton("🎬 Идеи для видео"), types.KeyboardButton("📱 Идеи для Shorts"))
-        markup.add(types.KeyboardButton("💡 Оценить идею"), types.KeyboardButton("ℹ️ Справка"))
-
+        markup.add(types.KeyboardButton("💡 Оценить идею"), types.KeyboardButton("📊 Анализ трендов"))
+        markup.add(types.KeyboardButton("⬅️ Назад"))
+        
         self.bot.send_message(
             message.chat.id,
-            "📚 *Справка по боту*\n\n"
-            "1️⃣ *Анализ канала* — анализ статистики и рекомендации\n"
-            "2️⃣ *Идеи для видео* — 15 идей для обычных видео\n"
-            "3️⃣ *Идеи для Shorts* — 15 идей для коротких вертикальных видео\n"
-            "4️⃣ *Оценить идею* — оценка вашей идеи от 1 до 10\n",
+            "📚 *Справка по использованию бота*\n\n"
+            "*Основные возможности:*\n\n"
+            
+            "🔍 *Анализ YouTube-канала*\n"
+            "- Анализ статистики видео и Shorts\n"
+            "- Выявление лучших дней для публикаций\n"
+            "- Рекомендации для улучшения показателей\n"
+            "- Генерация идей для контента\n\n"
+            
+            "📊 *Анализ трендов*\n"
+            "- Определение текущих трендов в выбранной нише\n"
+            "- Рекомендации по ключевым словам и хэштегам\n"
+            "- Советы по формату и длительности видео\n"
+            "- Использует Perplexity API с моделью sonar-pro для точного анализа\n\n"
+            
+            "🎬 *Генерация идей для видео*\n"
+            "- 15 оригинальных идей для обычных видео\n"
+            "- Для каждой идеи предлагаются тезисы и описание\n"
+            "- Учитывается специфика вашего канала\n\n"
+            
+            "📱 *Генерация идей для Shorts*\n"
+            "- 15 идей для коротких вертикальных видео\n"
+            "- Оптимизированы для формата Shorts\n"
+            "- Учитывают тренды и популярные темы\n\n"
+            
+            "💡 *Оценка идей*\n"
+            "- Оценка по шкале от 1 до 10\n"
+            "- Комментарии и рекомендации по улучшению идеи\n"
+            "- Проверка оригинальности относительно существующих видео\n\n"
+            
+            "*Как начать:*\n"
+            "1. Нажмите на кнопку нужной функции\n"
+            "2. Следуйте инструкциям бота\n"
+            "3. Получите результаты анализа и рекомендации\n\n"
+            
+            "При возникновении проблем используйте кнопку '⬅️ Назад' для возврата в главное меню.",
             parse_mode="Markdown",
             reply_markup=markup
         )
 
     def process_text_message(self, message):
-        """Обработка текстовых сообщений"""
+        """Обработка текстовых сообщений."""
         user_id = message.from_user.id
-        state = self.user_states.get(user_id, 'main')
+        state = self.user_states.get(user_id)  # Получение текущего состояния пользователя
 
-        # Обработка кнопки возврата в главное меню
-        if message.text == "⬅️ Назад" or message.text == "ℹ️ Справка":
-            if message.text == "ℹ️ Справка":
-                self.send_help(message)
-
-            self.user_states[user_id] = 'main'
-            if user_id in self.user_data:
-                self.user_data.pop(user_id, None)
-
-            # Восстанавливаем главное меню
-            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            markup.add(types.KeyboardButton("📊 Анализ YouTube-канала"))
-            markup.add(types.KeyboardButton("🎬 Идеи для видео"), types.KeyboardButton("📱 Идеи для Shorts"))
-            markup.add(types.KeyboardButton("💡 Оценить идею"), types.KeyboardButton("ℹ️ Справка"))
-
-            if message.text == "⬅️ Назад":
-                self.bot.send_message(
-                    message.chat.id,
-                    "Вы вернулись в главное меню.",
-                    reply_markup=markup
-                )
+        # Если пользователь отправил URL или ID канала
+        if state == 'waiting_for_channel':
+            self.process_channel_url(message)
             return
-
-        # Обработка кнопки запуска анализа
-        if message.text == "📊 Анализ YouTube-канала":
-            self.user_states[user_id] = 'waiting_for_channel'
-            self.user_data[user_id] = {}
-
+            
+        # Если пользователь вводит тематику для анализа канала
+        elif state == 'waiting_for_niche_for_analysis':
+            if message.text == "⬅️ Назад":
+                self.send_welcome(message)
+                return
+                
+            # Сохраняем тематику канала
+            self.user_data[user_id]['niche'] = message.text
+            
+            # Запускаем анализ
+            self.start_analysis(message, user_id)
+            return
+        
+        # Обработка состояния "ожидание ввода ниши" для анализа трендов
+        elif state == 'waiting_for_niche':
+            if message.text == "⬅️ Назад":
+                self.send_welcome(message)
+                return
+                
+            # Сохраняем нишу и запрашиваем ключевые слова
+            self.user_data[user_id]['niche'] = message.text
+            self.user_states[user_id] = 'waiting_for_keywords'
+            
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
             markup.add(types.KeyboardButton("⬅️ Назад"))
+            
+            self.bot.send_message(
+                message.chat.id, 
+                "🔑 Введите ключевые слова, характерные для вашего канала, через запятую.\n\n"
+                "Например: javascript, react, программирование, уроки, обучение",
+                reply_markup=markup
+            )
+            return
+        
+        # Обработка состояния "ожидание ввода ключевых слов"
+        elif state == 'waiting_for_keywords':
+            if message.text == "⬅️ Назад":
+                # Возвращаемся к запросу ниши
+                self.user_states[user_id] = 'waiting_for_niche'
+                
+                markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                markup.add(types.KeyboardButton("⬅️ Назад"))
+                
+                self.bot.send_message(
+                    message.chat.id,
+                    "📊 Введите нишу или тематику канала для анализа трендов на YouTube.",
+                    reply_markup=markup
+                )
+                return
+                
+            # Сохраняем ключевые слова и запускаем анализ
+            keywords = [kw.strip() for kw in message.text.split(',')]
+            self.user_data[user_id]['keywords'] = keywords
+            
+            # Отправляем сообщение о начале анализа
+            status_msg = self.bot.send_message(
+                message.chat.id,
+                "🔍 Анализирую тренды. Это может занять некоторое время..."
+            )
+            
+            # Запускаем анализ в отдельном потоке
+            def trend_analysis_thread():
+                try:
+                    # Получаем результаты анализа трендов
+                    trends_analysis = self.youtube_analyzer.analyze_with_perplexity(
+                        self.user_data[user_id]['niche'],
+                        self.user_data[user_id]['keywords']
+                    )
+                    
+                    # Создаем клавиатуру для возврата в главное меню
+                    markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+                    markup.add(types.KeyboardButton("🔍 Проанализировать канал"))
+                    markup.add(types.KeyboardButton("🎬 Идеи для видео"), types.KeyboardButton("📱 Идеи для Shorts"))
+                    markup.add(types.KeyboardButton("💡 Оценить идею"), types.KeyboardButton("📊 Анализ трендов"))
+                    
+                    # Редактируем сообщение с результатами
+                    self.bot.edit_message_text(
+                        f"📊 *Анализ трендов в нише {self.user_data[user_id]['niche']}*\n\n{trends_analysis}",
+                        chat_id=message.chat.id,
+                        message_id=status_msg.message_id,
+                        parse_mode="Markdown"
+                    )
+                    
+                    # Отправляем дополнительное сообщение с кнопками
+                    self.bot.send_message(
+                        message.chat.id,
+                        "✅ Анализ трендов завершен. Что делаем дальше?",
+                        reply_markup=markup
+                    )
+                    
+                    # Сбрасываем состояние пользователя
+                    self.user_states[user_id] = None
+                    
+                except Exception as e:
+                    # В случае ошибки отправляем сообщение
+                    self.bot.edit_message_text(
+                        f"❌ Произошла ошибка при анализе трендов: {str(e)}",
+                        chat_id=message.chat.id,
+                        message_id=status_msg.message_id
+                    )
+                    
+                    # Возвращаем пользователя в главное меню
+                    self.send_welcome(message)
+                    
+            # Запускаем поток
+            threading.Thread(target=trend_analysis_thread).start()
+            return
+            
+        # Обработка ввода идеи для оценки
+        elif state == 'waiting_for_idea_to_evaluate':
+            # Проверка на стандартные кнопки меню
+            if message.text in ["🔍 Проанализировать канал", "🎬 Идеи для видео", "📱 Идеи для Shorts", 
+                               "💡 Оценить идею", "📊 Анализ трендов", "ℹ️ Справка", "⬅️ Назад"]:
+                # Обрабатываем как обычную кнопку меню
+                self.user_states[user_id] = None  # Сбрасываем состояние
+                # Вызываем соответствующий обработчик заново
+                self.process_text_message(message)
+                return
+                
+            idea = message.text.strip()
+            
+            if not idea:
+                self.bot.send_message(
+                    message.chat.id,
+                    "⚠️ Идея не может быть пустой. Пожалуйста, введите идею для оценки."
+                )
+                return
+                
+            # Сохраняем идею и запускаем оценку
+            self.user_data[user_id]['idea_to_evaluate'] = idea
+            self.evaluate_user_idea(message)
+            return
 
+        # Обработка конкретных команд и кнопок
+        if message.text == "⬅️ Назад":
+            self.send_welcome(message)
+            return
+            
+        # Обработка кнопки "Справка"
+        elif message.text == "ℹ️ Справка":
+            self.send_help(message)
+            return
+            
+        # Обработка кнопки "Проанализировать канал"
+        elif message.text == "🔍 Проанализировать канал":
+            # Переводим пользователя в режим ожидания ввода URL канала
+            self.user_states[user_id] = 'waiting_for_channel'
+            self.user_data[user_id] = {}
+            
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add(types.KeyboardButton("⬅️ Назад"))
+            
             self.bot.send_message(
                 message.chat.id,
-                "Введите ID канала YouTube (начинается с 'UC') или полный URL канала.",
+                "Введите URL или ID канала YouTube для анализа.\n\n"
+                "Например:\n"
+                "- https://www.youtube.com/@username\n"
+                "- UCxxxxxxxxxxxxxxxx (ID канала)",
+                reply_markup=markup
+            )
+            return
+            
+        # Обработка кнопки "Анализ трендов"
+        elif message.text == "📊 Анализ трендов":
+            # Переводим пользователя в режим ожидания ввода ниши
+            self.user_states[user_id] = 'waiting_for_niche'
+            self.user_data[user_id] = {}
+            
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add(types.KeyboardButton("⬅️ Назад"))
+            
+            self.bot.send_message(
+                message.chat.id,
+                "📊 Введите нишу или тематику канала для анализа трендов на YouTube.\n\n"
+                "Например: обучение программированию, фитнес, кулинария, путешествия и т.д.",
                 reply_markup=markup
             )
             return
             
         # Обработка кнопки идей для видео
-        if message.text == "🎬 Идеи для видео":
+        elif message.text == "🎬 Идеи для видео":
             if user_id in self.user_data and 'channel_id' in self.user_data[user_id]:
                 # Если канал уже был проанализирован, генерируем идеи сразу
                 self.generate_video_ideas(message)
@@ -1263,19 +1471,19 @@ class YouTubeTelegramBot:
                 # Если канал еще не задан, запрашиваем его
                 self.user_states[user_id] = 'waiting_for_channel_video_ideas'
                 self.user_data[user_id] = {}
-
+                
                 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
                 markup.add(types.KeyboardButton("⬅️ Назад"))
-
+                
                 self.bot.send_message(
                     message.chat.id,
-                    "Введите ID канала YouTube (начинается с 'UC') или полный URL канала для генерации идей для видео.",
+                    "Введите URL или ID канала YouTube для генерации идей видео.",
                     reply_markup=markup
                 )
             return
-            
+                
         # Обработка кнопки идей для Shorts
-        if message.text == "📱 Идеи для Shorts":
+        elif message.text == "📱 Идеи для Shorts":
             if user_id in self.user_data and 'channel_id' in self.user_data[user_id]:
                 # Если канал уже был проанализирован, генерируем идеи сразу
                 self.generate_shorts_ideas(message)
@@ -1289,13 +1497,13 @@ class YouTubeTelegramBot:
 
                 self.bot.send_message(
                     message.chat.id,
-                    "Введите ID канала YouTube (начинается с 'UC') или полный URL канала для генерации идей для Shorts.",
+                    "Введите URL или ID канала YouTube для генерации идей для Shorts.",
                     reply_markup=markup
                 )
             return
             
         # Обработка кнопки оценки идеи
-        if message.text == "💡 Оценить идею":
+        elif message.text == "💡 Оценить идею":
             if user_id in self.user_data and 'channel_id' in self.user_data[user_id]:
                 # Если канал уже был проанализирован, запрашиваем идею для оценки
                 self.user_states[user_id] = 'waiting_for_idea_to_evaluate'
@@ -1318,74 +1526,13 @@ class YouTubeTelegramBot:
                 
                 self.bot.send_message(
                     message.chat.id,
-                    "Введите ID канала YouTube (начинается с 'UC') или полный URL канала для оценки идеи.",
+                    "Введите URL или ID канала YouTube для оценки идеи.",
                     reply_markup=markup
                 )
             return
-
-        # Обработка ввода канала для анализа
-        if state == 'waiting_for_channel':
-            channel_input = message.text.strip()
-            channel_id = self.extract_channel_id(channel_input)
-
-            if not channel_id:
-                self.bot.send_message(
-                    message.chat.id,
-                    "⚠️ Не удалось распознать ID канала. Пожалуйста, введите ID в формате 'UCxxxxxxxxxxxxxxxx' "
-                    "или полный URL канала."
-                )
-                return
-
-            # Сохраняем ID канала
-            self.user_data[user_id]['channel_id'] = channel_id
-            self.user_states[user_id] = 'waiting_for_niche'
-
-            self.bot.send_message(
-                message.chat.id,
-                f"✅ ID канала принят: {channel_id}\n\n"
-                "Теперь введите тематику канала для более точного анализа трендов.\n"
-                "Например: 'технологии', 'кулинария', 'игры', 'образование' и т.д."
-            )
-            return
-            
-        # Обработка ввода канала для генерации идей видео
-        if state == 'waiting_for_channel_video_ideas':
-            channel_input = message.text.strip()
-            channel_id = self.extract_channel_id(channel_input)
-
-            if not channel_id:
-                self.bot.send_message(
-                    message.chat.id,
-                    "⚠️ Не удалось распознать ID канала. Пожалуйста, введите ID в формате 'UCxxxxxxxxxxxxxxxx' "
-                    "или полный URL канала."
-                )
-                return
-
-            # Сохраняем ID канала и запускаем генерацию идей для видео
-            self.user_data[user_id] = {'channel_id': channel_id}
-            self.generate_video_ideas(message)
-            return
-            
-        # Обработка ввода канала для генерации идей Shorts
-        if state == 'waiting_for_channel_shorts_ideas':
-            channel_input = message.text.strip()
-            channel_id = self.extract_channel_id(channel_input)
-
-            if not channel_id:
-                self.bot.send_message(
-                    message.chat.id,
-                    "⚠️ Не удалось распознать ID канала. Пожалуйста, введите ID в формате 'UCxxxxxxxxxxxxxxxx' "
-                    "или полный URL канала."
-                )
-                return
-
-            # Сохраняем ID канала и запускаем генерацию идей для Shorts
-            self.user_data[user_id] = {'channel_id': channel_id}
-            self.generate_shorts_ideas(message)
-            return
             
         # Обработка ввода канала для оценки идеи
-        if state == 'waiting_for_channel_idea_evaluation':
+        elif state == 'waiting_for_channel_idea_evaluation':
             channel_input = message.text.strip()
             channel_id = self.extract_channel_id(channel_input)
 
@@ -1411,40 +1558,46 @@ class YouTubeTelegramBot:
             )
             return
             
-        # Обработка ввода идеи для оценки
-        if state == 'waiting_for_idea_to_evaluate':
-            idea = message.text.strip()
-            
-            if not idea:
+        # Обработка ввода канала для генерации идей видео
+        elif state == 'waiting_for_channel_video_ideas':
+            channel_input = message.text.strip()
+            channel_id = self.extract_channel_id(channel_input)
+
+            if not channel_id:
                 self.bot.send_message(
                     message.chat.id,
-                    "⚠️ Идея не может быть пустой. Пожалуйста, введите идею для оценки."
-                )
-                return
-                
-            # Сохраняем идею и запускаем оценку
-            self.user_data[user_id]['idea_to_evaluate'] = idea
-            self.evaluate_user_idea(message)
-            return
-
-        # Обработка ввода тематики канала
-        if state == 'waiting_for_niche':
-            niche = message.text.strip()
-
-            if not niche:
-                self.bot.send_message(
-                    message.chat.id,
-                    "⚠️ Тематика не может быть пустой. Пожалуйста, введите тематику канала."
+                    "⚠️ Не удалось распознать ID канала. Пожалуйста, введите ID в формате 'UCxxxxxxxxxxxxxxxx' "
+                    "или полный URL канала."
                 )
                 return
 
-            # Сохраняем тематику канала
-            self.user_data[user_id]['niche'] = niche
-
-            # Запускаем анализ в отдельном потоке
-            self.start_analysis(message, user_id)
+            # Сохраняем ID канала и запускаем генерацию идей для видео
+            self.user_data[user_id] = {'channel_id': channel_id}
+            self.generate_video_ideas(message)
             return
             
+        # Обработка ввода канала для генерации идей Shorts
+        elif state == 'waiting_for_channel_shorts_ideas':
+            channel_input = message.text.strip()
+            channel_id = self.extract_channel_id(channel_input)
+
+            if not channel_id:
+                self.bot.send_message(
+                    message.chat.id,
+                    "⚠️ Не удалось распознать ID канала. Пожалуйста, введите ID в формате 'UCxxxxxxxxxxxxxxxx' "
+                    "или полный URL канала."
+                )
+                return
+
+            # Сохраняем ID канала и запускаем генерацию идей для Shorts
+            self.user_data[user_id] = {'channel_id': channel_id}
+            self.generate_shorts_ideas(message)
+            return
+            
+        # Если сообщение не обработано, отправляем справку
+        else:
+            self.send_help(message)
+
     def generate_video_ideas(self, message):
         """
         Генерирует идеи для видео на основе анализа канала.
@@ -1743,7 +1896,7 @@ class YouTubeTelegramBot:
             
             # Отправляем итоговое сообщение
             markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
-            markup.add(types.KeyboardButton("📊 Анализ YouTube-канала"))
+            markup.add(types.KeyboardButton("🔍 Проанализировать канал"))
             markup.add(types.KeyboardButton("🎬 Идеи для видео"), types.KeyboardButton("📱 Идеи для Shorts"))
             markup.add(types.KeyboardButton("💡 Оценить идею"), types.KeyboardButton("ℹ️ Справка"))
             
@@ -1809,51 +1962,40 @@ class YouTubeTelegramBot:
 
     def start_analysis(self, message, user_id):
         """
-        Запуск анализа канала в отдельном потоке.
-
+        Запускает процесс анализа канала.
+        
         Args:
             message (Message): Сообщение пользователя
             user_id (int): ID пользователя
         """
-        # Получаем данные для анализа
-        channel_id = self.user_data[user_id]['channel_id']
-        niche = self.user_data[user_id]['niche']
-
-        # Проверяем, является ли channel_id URL-адресом
-        if channel_id.startswith('channel_url:'):
-            url = channel_id.replace('channel_url:', '')
-            status_msg = self.bot.send_message(
+        channel_id = self.user_data[user_id].get('channel_id')
+        niche = self.user_data[user_id].get('niche', '')
+        
+        if not channel_id:
+            self.bot.send_message(
                 message.chat.id,
-                f"🔍 Получение ID канала из URL: {url}..."
+                "❌ Ошибка: не указан ID канала."
             )
-
-            # TODO: Добавить функцию получения ID канала из URL
-            # Пока просто сообщаем об ошибке
-            self.bot.edit_message_text(
-                "⚠️ Извините, получение ID канала из URL-адреса временно недоступно. "
-                "Пожалуйста, введите ID канала напрямую (начинается с 'UC').",
-                message.chat.id,
-                status_msg.message_id
-            )
+            self.send_welcome(message)
             return
-
-        # Отправляем начальное сообщение о статусе
+            
+        # Отправляем сообщение о начале анализа
         status_msg = self.bot.send_message(
             message.chat.id,
-            "🚀 Начинаем анализ канала. Это может занять некоторое время..."
+            "🔍 Анализирую канал. Это может занять некоторое время..."
         )
-
-        # Создаем функцию для обновления статуса
+        
+        # Функция обновления статуса
         def update_status(text):
             try:
                 self.bot.edit_message_text(
                     text,
-                    message.chat.id,
-                    status_msg.message_id
+                    chat_id=message.chat.id,
+                    message_id=status_msg.message_id
                 )
             except Exception as e:
                 print(f"Ошибка при обновлении статуса: {e}")
-
+                
         # Запускаем анализ в отдельном потоке
         def analysis_thread():
             try:
@@ -1865,7 +2007,7 @@ class YouTubeTelegramBot:
                 )
 
                 # Проверяем результат
-                if "error" in content_plan:
+                if isinstance(content_plan, dict) and "error" in content_plan:
                     self.bot.send_message(
                         message.chat.id,
                         f"❌ Ошибка при анализе канала: {content_plan['error']}"
@@ -1880,6 +2022,9 @@ class YouTubeTelegramBot:
                     message.chat.id,
                     f"❌ Произошла ошибка при анализе: {str(e)}"
                 )
+                
+            # Сбрасываем состояние пользователя
+            self.user_states[user_id] = None
 
         # Запускаем поток
         threading.Thread(target=analysis_thread).start()
@@ -2043,6 +2188,52 @@ class YouTubeTelegramBot:
             print(f"Ошибка при работе бота: {e}")
             time.sleep(15)
             self.run()  # Перезапуск при ошибке
+
+    def process_channel_url(self, message):
+        """
+        Обрабатывает URL или ID канала YouTube, введенный пользователем.
+        
+        Args:
+            message (Message): Сообщение пользователя с URL или ID канала
+        """
+        user_id = message.from_user.id
+        
+        # Если пользователь хочет вернуться назад
+        if message.text == "⬅️ Назад":
+            self.send_welcome(message)
+            return
+            
+        try:
+            # Извлекаем ID канала из сообщения
+            channel_id = self.extract_channel_id(message.text)
+            
+            if not channel_id:
+                self.bot.send_message(
+                    message.chat.id,
+                    "❌ Не удалось определить ID канала. Пожалуйста, убедитесь, что вы вводите корректный URL или ID канала."
+                )
+                return
+                
+            # Сохраняем ID канала и запрашиваем тематику
+            self.user_data[user_id] = {'channel_id': channel_id}
+            self.user_states[user_id] = 'waiting_for_niche_for_analysis'
+            
+            markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add(types.KeyboardButton("⬅️ Назад"))
+            
+            self.bot.send_message(
+                message.chat.id,
+                "Теперь введите тематику канала для более точного анализа трендов.\n"
+                "Например: обучение программированию, фитнес, кулинария, путешествия и т.д.",
+                reply_markup=markup
+            )
+            
+        except Exception as e:
+            self.bot.send_message(
+                message.chat.id,
+                f"❌ Произошла ошибка при обработке URL канала: {str(e)}"
+            )
+            self.send_welcome(message)
 
 # Запуск приложения
 if __name__ == "__main__":
