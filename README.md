@@ -72,6 +72,7 @@ python main.py
 - Telebot (PyTelegramBotAPI)
 - YouTube Data API v3
 - OpenAI API (GPT-4o)
+- Perplexity API (опционально, для расширенного анализа трендов)
 - Pandas и NumPy для анализа данных
 - Scikit-learn для кластеризации контента
 - Многопоточность для асинхронной генерации контента
